@@ -1,19 +1,20 @@
 import io
 import warnings
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import streamlit as st
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
 from sklearn.model_selection import GridSearchCV, StratifiedKFold, train_test_split
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.tree import DecisionTreeClassifier
 
 warnings.filterwarnings("ignore")
+
+TRAIN_PATH = Path(__file__).parent / "DS_smartPhone.csv"
 
 CATEGORY_COLS = [
     "Payment_Method", "Website_Activity", "Bought_Digital_Media_18Mo",
@@ -39,9 +40,14 @@ def load_csv(file, sep=";"):
 
 
 @st.cache_resource
-def train_pipeline(_df_hash, _df):
-    X = _df.drop([TARGET, "User_ID"], axis=1)
-    y = _df[TARGET]
+def load_and_train():
+    df = pd.read_csv(TRAIN_PATH, delimiter=";")
+    return _fit_pipeline(df)
+
+
+def _fit_pipeline(df):
+    X = df.drop([TARGET, "User_ID"], axis=1)
+    y = df[TARGET]
 
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
@@ -122,28 +128,29 @@ def plot_segment_distribution(dist_pred, dist_pct):
 
 # ── Sidebar: upload ─────────────────────────────────────────────────────────
 with st.sidebar:
-    st.header("Upload Data")
-    train_file = st.file_uploader("Data Training (CSV, sep=;)", type="csv", key="train")
-    new_file   = st.file_uploader("Data Calon Pembeli (CSV, sep=;)", type="csv", key="new")
+    st.header("Upload Data Baru")
+    new_file = st.file_uploader("Data Calon Pembeli (CSV, sep=;)", type="csv", key="new")
+    st.caption("Data training sudah tersimpan di sistem.")
 
-if train_file is None or new_file is None:
-    st.info("Upload **Data Training** dan **Data Calon Pembeli** di sidebar untuk memulai.")
+if not TRAIN_PATH.exists():
+    st.error(f"File training tidak ditemukan: `{TRAIN_PATH.name}`. Letakkan file tersebut di folder yang sama dengan app.py.")
     st.stop()
 
-# ── Load data ────────────────────────────────────────────────────────────────
-df_train = load_csv(train_file)
-df_new   = load_csv(new_file)
+if new_file is None:
+    st.info("Upload **Data Calon Pembeli** di sidebar untuk memulai scoring.")
+    st.stop()
+
+# ── Load & train ─────────────────────────────────────────────────────────────
+with st.spinner("Memuat model... (hanya sekali, hasil di-cache)"):
+    preprocessor, final_model, metrics, best_params = load_and_train()
+
+df_new = load_csv(new_file)
 
 col1, col2 = st.columns(2)
-col1.metric("Baris data training", f"{len(df_train):,}")
+col1.metric("Data training", "5.000 baris (fixed)")
 col2.metric("Calon pembeli baru", f"{len(df_new):,}")
 
 st.divider()
-
-# ── Train model ──────────────────────────────────────────────────────────────
-with st.spinner("Melatih model Gradient Boosting (GridSearchCV)... ini membutuhkan ~1 menit."):
-    df_hash = hash(df_train.to_json())
-    preprocessor, final_model, metrics, best_params = train_pipeline(df_hash, df_train)
 
 # ── Metrics ──────────────────────────────────────────────────────────────────
 st.subheader("Performa Model (Test Set)")
